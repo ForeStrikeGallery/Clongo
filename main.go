@@ -8,30 +8,24 @@ import (
 	"io/ioutil"
 	"github.com/google/uuid"
 	"os"
+	"path/filepath"
 	"strings"
 ) 
 
-func getUserInput() (map[string]interface{}, error) {
-	var jsonMap map[string]interface{}
+func validateUserInput(operation string, jsonInput string) (error) {
 
-	fmt.Print("clongo> ")
-	reader := bufio.NewReader(os.Stdin) 
-	input, _ := reader.ReadString('\n')
-	
-	if !hasValidFunctionKeyword(input) {
-		return jsonMap, fmt.Errorf("Invalid Function")
+	if !hasValidFunctionKeyword(operation) {
+		return fmt.Errorf("Invalid Operation")
 	}
-
-	parts := strings.Split(input, " ") 
-	jsonInput:= strings.Join(parts[1:], " ")	
-
+		
+	var jsonMap map[string]interface{} 
 	err := json.Unmarshal([]byte(jsonInput), &jsonMap)
 
 	if err != nil {
-		return jsonMap, fmt.Errorf("Invalid Json")
+		return fmt.Errorf("Invalid Json")
 	}
 	 	
-	return jsonMap, nil	
+	return nil	
 }
 
 func hasValidFunctionKeyword(input string) bool {	
@@ -46,33 +40,119 @@ func hasValidFunctionKeyword(input string) bool {
 	return false 
 }
 
-func main() {
+func searchDocuments(rootDir string, searchTerm map[string]interface{}) ([]string, error) {
+	var matchingDocuments []string 
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo,  err error) error {
+		if err != nil {
+			return err
+		}
 
+		if info.IsDir() {
+			return nil
+		} 
 
-	for {
-		userInput, err := getUserInput() 
+		if filepath.Ext(path) == ".bson" {
+			data, err := ioutil.ReadFile(path)
+			if err != nil {
+				return err
+			}
 		
+			var document map[string]interface{}
+
+			err = bson.Unmarshal(data, &document) 
+			if err != nil {
+				return err
+			}
+
+			matching := true
+			for key, value := range searchTerm {
+				val, ok := document[key]  
+				if !ok || val != value {
+					matching = false
+					break 
+				}
+			}
+
+			if matching {
+				jsonData, err := json.Marshal(document)
+				if err != nil {
+					return err 
+				}
+				
+				jsonString := string(jsonData)	
+				matchingDocuments = append(matchingDocuments, jsonString)	
+			}	
+		}
+		
+		return nil
+	}) 
+
+	if err != nil {
+		return nil, err 
+	}
+
+	return matchingDocuments, nil
+}
+
+func insert(userInput map[string]interface{}) error {
+	document := bson.M(userInput)	
+	data, err := bson.Marshal(document)
+
+	if err != nil {
+		return fmt.Errorf("Error marshalling BSON document: ", err)
+	}
+
+	filepath := "/Users/mmohan/Projects/Clongo/Data/"
+	filename := uuid.New().String() + ".bson"
+
+	err = ioutil.WriteFile(filepath + filename, data, 0644)
+
+	if err != nil {	
+		return fmt.Errorf("Error saving BSON document: ", err) 
+	}
+
+	return nil 
+} 
+
+
+func main() {
+	for {
+		fmt.Print("clongo> ")
+		reader := bufio.NewReader(os.Stdin) 
+		input, _ := reader.ReadString('\n')
+	
+		parts := strings.Split(input, " ")
+		operation := parts[0]
+    	jsonInput:= strings.Join(parts[1:], " ")
+			
+		err := validateUserInput(operation, jsonInput) 
+
 		if err != nil {
 			fmt.Println("Error: ", err)
 			continue
 		}
 
-	 	document := bson.M(userInput)	
-		data, err := bson.Marshal(document)
+	    var jsonMap map[string]interface{} 
+		err = json.Unmarshal([]byte(jsonInput), &jsonMap)
 	
-		if err != nil {
-			fmt.Println("Error marshalling BSON document: ", err)
-			continue
+		if operation == "insert" {
+			err := insert(jsonMap)
+				
+			if err != nil {
+				fmt.Println("Error while inserting: ", err) 
+			} 
 		}
 
-		filepath := "/Users/mmohan/Projects/Clongo/Data/"
-		filename := uuid.New().String() + ".bson"
+		if operation == "find" {
+			matchingDocuments, err := searchDocuments("/Users/mmohan/Projects/Clongo/Data/", jsonMap) 
+			if err != nil {
+				fmt.Println("Error while searching for documents: ", err) 
+				continue
+			}
 
-		err = ioutil.WriteFile(filepath + filename, data, 0644)
-
-		if err != nil {	
-			fmt.Println("Error saving BSON document: ", err) 
-			continue
-		} 
+			for _, document := range matchingDocuments {
+				fmt.Println(document + "\n")
+			}	
+		}
 	}
 } 
