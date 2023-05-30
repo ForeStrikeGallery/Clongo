@@ -8,4 +8,4 @@ Clongo: A Mongo Go Clone
 ## Commands 
 
 `insert <json>` 
-`search <json>`
+`find <json>`
